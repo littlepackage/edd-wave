@@ -3,7 +3,7 @@
  * Plugin Name: Easy Digital Downloads Wave
  * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions. Custom for Caroline, by Caroline because she loves herself
  *
- * Version: 1.8
+ * Version: 1.9
  * Author: Little Package
  * Text Domain: edd-wave
  *
@@ -22,6 +22,7 @@ comment out date_default_timezone_set()
  * 1.6 - make $last_called work again and add PayPal fx to EDD after order cron fx
  * 1.7 - start to dig into EDD's PayPal API to get Paypal transaction details for accounting
  * 1.8 - Finally, fully integrate EDD\Gateways\PayPal\API
+ * 1.9 - Develop full admin settings panel, map accounts so that others can use this, too
  */
 
 use EDD\Gateways\PayPal;
@@ -172,6 +173,8 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
              // Unused
 			// $this->country = $response->payment_source->paypal->address->country_code ?? '';
+			// $this->order_id	= $payment_id;
+			// $order 			= edd_get_order( $payment_id );
 
 
 			if ( ! $response->purchase_units ) {
@@ -181,12 +184,6 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 error_log( 'EDD + Wave: PayPal API response: ' . print_r( $response, true ) );
 
-
-
-			// $this->order_id	= $payment_id;
-			// $order 			= edd_get_order( $payment_id );
-
-
 			$line_items = [];
 			/**
 			 * Cart (download) details
@@ -194,6 +191,9 @@ error_log( 'EDD + Wave: PayPal API response: ' . print_r( $response, true ) );
 			 *
 			 */
 			foreach( $response->purchase_units as $index => $purchase_unit ) {
+
+
+error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true ) );
 
 				// Total price after discounts/fees/taxes applied. In other words, the amount proposed TO PayPal
 				$price = $purchase_unit->payments->captures->$index->seller_receivable_breakdown->gross_amount->value ?? false;
@@ -259,6 +259,7 @@ return;
 
 			// Don't run this more than once on the same payment
 			if ( did_action( 'edds_payment_complete' ) > 1 ) {
+				error_log( 'EDD + Wave: Stripe \'edds_payment_complete\' filter hook already run, so won\'t run it again' );
 				return;
 			}
 
@@ -267,9 +268,11 @@ return;
 				return;
 			}
 
-			$order_subtotal = edd_get_payment_subtotal( $payment->ID );
+// error_log( 'EDD + Wave: $payment object: ' . print_r( $payment, true ) );
 
-			$order_total = edd_get_payment_amount( $payment->ID ); // remember YOU DON'T TAX THE TAX.
+			// $order_subtotal = edd_get_payment_subtotal( $payment->ID );
+
+			// $order_total = edd_get_payment_amount( $payment->ID ); // remember YOU DON'T TAX THE TAX.
 
 			$user_info = edd_get_payment_meta_user_info( $payment->ID );
 			$billing_address = ! empty( $user_info['address'] ) ? $user_info['address'] : array( 'line1' => '', 'line2' => '', 'city' => '', 'country' => '', 'state' => '', 'zip' => '' );
@@ -295,8 +298,6 @@ return;
 
 			if ( ! class_exists( 'Stripe\Stripe' ) && defined( 'EDDS_PLUGIN_DIR' ) ) {
 				require_once EDDS_PLUGIN_DIR . '/vendor/autoload.php';
-			} else {
-				error_log( 'EDD + Wave: Unable to include code essential to running Stripe API requests.' );
 			}
 
 			$balance_trans_retrieved = false;
@@ -307,8 +308,8 @@ return;
 				// error_log( 'EDD + Wave Balance Transaction: ' . print_r( $balance_transaction, true ) );
 
 				$amount	= floatval( $balance_transaction->amount / 100 );
-				$fee	= floatval( $balance_transaction->fee / 100 );
-				$net	= floatval( $balance_transaction->net / 100 );
+				$merchant_fee = floatval( $balance_transaction->fee / 100 );
+				$net	 = floatval( $balance_transaction->net / 100 );
 
 				$balance_trans_retrieved = true;
 
@@ -319,9 +320,9 @@ return;
 
 				$amount = floatval( $intent->amount_received / 100 );
 				if ( 'US' === strtoupper( $billing_country_code ) ) {
-					$fee = floatval( ( $amount * .029 ) + 0.30 );
+					$merchant_fee = floatval( ( $amount * .029 ) + 0.30 );
 				} else {
-					$fee = floatval( ( $amount * .039 ) + 0.30 );
+					$merchant_fee = floatval( ( $amount * .039 ) + 0.30 );
 				} // there is also an additional 1% Stripe charge for currency conversions but those will probably be less common
 
 				$net = '';
@@ -329,8 +330,6 @@ return;
 				// return;
 
 			}
-
-			$line_items = [];
 
 			/**
 			 * LET'S START ADDING TO LINE ITEMS FOR THE WAVE ENTRY
@@ -347,93 +346,158 @@ return;
 				return;
 			}
 
-error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
 
+// error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
+
+/*
+
+// Looks like this for download with variation pricing
+[0] => Array(
+    [0] => Array
+        (
+            [id] => 2235
+            [quantity] => 1
+            [options] => Array
+                (
+                    [quantity] => 1
+                    [price_id] => 1
+                )
+
+        )
+
+    [1] => Array
+        (
+            [id] => 58392
+            [quantity] => 1
+            [options] => Array
+                (
+                    [quantity] => 1
+                    [price_id] => 3
+                )
+
+        )
+
+)
+
+*/
+			$total_fees = 0;
+			$total_discounts = 0;
+			$line_items = [];
 			/**
-			 * Get an array of lineItems for Wave API inputMoneyTransactionCreate
+			 * Get an array of line items "lineItems" for Wave API inputMoneyTransactionCreate
 			 */
 			foreach ( $payment->downloads as $download ) {
 
-				$item_id = isset( $download['id'] ) ? $download['id'] : $download;
+				$item_id = $download['id'] ?? '';
 
-				if ( ! isset( $item_id ) ) {
+				if ( empty( $item_id ) ) {
 					error_log( 'EDD + Wave: For some reason, a download was skipped in the foreach() loop, due to missing item ID.' );
 					continue;
 				}
+
 				if ( isset( $download['options']['is_upgrade'] ) && true === $download['options']['is_upgrade'] ) {
 					error_log( 'EDD + Wave: EDD Software License upgrade purchase not logged in Wave: ' . $payment->ID );
 					continue;
 				}
 
-				// The regular price vs. the paid price
-				$regular_price = edd_get_price_option_amount( $download['id'], $download['options']['price_id'] );
-				if ( isset( $download['price'] ) ) {
-					$price = $download['price'];
+				// EDD price variation ID
+				$price_id = $download['options']['price_id'] ?? '';
+
+
+				/**
+				 * Discounts (debit)
+				 */
+				$discount = $this->getEDDItemDiscount( $item_id, $payment->cart_details );
+
+				if ( $discount ) {
+					$total_discount = 0;
+					// error_log( 'Discount: ' . print_r( $discount, true ) );
+					$line_items[] = array(
+						'accountId'	=> $this->settings['expense_discounts'],
+						'amount'		=> $discount,
+						'balance'	=> 'DEBIT',
+					);
+					$total_discounts += $discount;
 				}
 
 				/**
-				 * Discounts
+				 * Fees (credit)
 				 */
-				if ( $price != $regular_price ) {
+				$fees = $this->getEDDItemFees( $item_id, $payment->cart_details );
 
-					$discount = $regular_price - $price;
-					/**
-					 * Add discounts (debit) to line items
-					 */
-					if ( $discount ) {
-						$discount = number_format( $discount, 2, '.', '' );
-						// error_log( 'Discount: ' . print_r( $discount, true ) );
+				if ( ! empty( $fees ) ) { // array
+/*
+$fees[ $id ] = array(
+	'amount'      => $order_fee->subtotal,
+	'label'       => $order_fee->description,
+	'no_tax'      => $no_tax,
+	'type'        => 'fee',
+	'price_id'    => $price_id,
+	'download_id' => $download_id,
+);
+*/
+					foreach ( $fees as $fee ) {
 						$line_items[] = array(
-							'accountId'	=> $this->settings['expense_discounts'],
-							'amount'	=> $discount,
-							'balance'	=> 'DEBIT',
+							'accountId'	=> $this->settings['purchase_fees'],
+							'amount'		=> number_format( $fee['amount'], 2, '.', '' ),
+							'balance'	=> 'CREDIT',
 						);
-
+						$total_fees += $fee['amount']
 					}
+
+				}
+
+				/**
+				 * Income (credit)
+				 */
+				$subtotal = $this->getEDDItemSubtotal( $item_id, $payment->cart_details );
+				if ( $subtotal ) {
+					/**
+					 * Add download product (credit) to line items
+					 * The accountId will be EDD product:income account Wave ID
+					 */
+					$line_items[] = array(
+						'accountId'	=> $this->getWaveAccount( $item_id, $price_id ),
+						'amount'		=> $subtotal, // Gateway amount received (before gateway fees)
+						'balance'	=> 'CREDIT'
+					);
 				}
 
 			} // end foreach ( $payment->downloads as $download )
 
+
 			/**
-			 * Add fees (debit) to line items
+			 * Add merchant fees (debit) to line items
 			 */
-			if ( ! empty( $fee ) ) {
+			if ( ! empty( $merchant_fee ) ) {
 
 				$line_items[] = array(
 					'accountId'	=> $this->settings['stripe_fees_account_id'],
-					'amount'	=> $fee,
+					'amount'		=> $merchant_fee,
 					'balance'	=> 'DEBIT'
 				);
 			}
 
-			/**
-			 * Add sale amount (credit) to line items
-			 */
-			$line_items[] = array(
-				'accountId'	=> $this->getWaveAccount( $item_id ),
-				'amount'	=> $amount, // Gateway amount received (before gateway fees)
-				'balance'	=> 'CREDIT'
-			);
-
-
 			/*
-						// EU VAT TAX (pass-thru tax)
-						if ( in_array( $this->country, array( 'AT','BE','EE','FI','FR','SK','DE','TR','LU','CH','CZ','LV','NL','ES','SI','IT','IE','PT','PL','IS','GR','SE','DK','NO','HU' ) ) ) {
-							$tax = edd_get_payment_tax( $payment_id );
-							// error_log( 'Tax: ' . print_r( $tax, true ) );
-							if ( isset( $tax ) ) {
-								$line_items[] = array(
-									'accountId' => $this->getTaxAccount( $this->country ),
-									'amount'	=> $tax,
-									'balance'	=> 'CREDIT'
-								);
-							}
-						}
+				// EU VAT TAX (pass-thru tax)
+				if ( in_array( $this->country, array( 'AT','BE','EE','FI','FR','SK','DE','TR','LU','CH','CZ','LV','NL','ES','SI','IT','IE','PT','PL','IS','GR','SE','DK','NO','HU' ) ) ) {
+					$tax = edd_get_payment_tax( $payment_id );
+					// error_log( 'Tax: ' . print_r( $tax, true ) );
+					if ( isset( $tax ) ) {
+						$line_items[] = array(
+							'accountId' => $this->getTaxAccount( $this->country ),
+							'amount'	=> $tax,
+							'balance'	=> 'CREDIT'
+						);
+					}
+				}
 			*/
+
+			// error_log( 'EDD + Wave: Stripe line items: ' . print_r( $line_items, true ) );
 
 			if ( ! $balance_trans_retrieved && isset( $fee ) ) {
 
-				if ( $net !== ( $amount - $fee - $discount ) ) {
+				if ( $net !== ( $amount + $total_fees - $total_discounts - $merchant_fee ) ) {
 
 					error_log( 'EDD + Wave: the math doesn\'t add up! Amount: ' . print_r( $amount, true ) . ', Fee: ' . print_r( $fee, true ) . ', Discount: ' . print_r( $discount, true ) );
 					return;
@@ -442,13 +506,85 @@ error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->download
 
 			}
 
-error_log( 'EDD + Wave: Stripe line items: ' . print_r( $line_items, true ) );
-return;
 			$this->createWaveTransaction( $payment, $this->settings['stripe_anchor_account_id'], $line_items, $net );
 
-			return;
+		}
+
+		/**
+		 * Get full price of EDD item
+		 *
+		 * @param  string $item_id
+		 * @param  array $cart_details
+		 * @return float|boolean
+		 */
+		protected function getEDDItemFullPrice( $item_id, $cart_details ) {
+
+			foreach ( $cart_details as $cart_detail ) {
+				if ( $item_id === $cart_detail['id'] ) {
+					return $cart_detail['item_price'];
+				}
+			}
+			return false; // Yikes
 
 		}
+
+		/**
+		 * Get discount off EDD item, if exists
+		 *
+		 * @param  string $item_id
+		 * @param  array $cart_details
+		 * @return float|boolean
+		 */
+		protected function getEDDItemDiscount( $item_id, $cart_details ) {
+
+			foreach ( $cart_details as $cart_detail ) {
+				if ( $item_id === $cart_detail['id'] ) {
+					$discount = number_format( $cart_detail['discount'], 2, '.', '' );
+					if ( '0.00' !== $discount ) {
+						return $discount;
+					}
+				}
+			}
+			return false;
+
+		}
+
+		/**
+		 * Get EDD item fees
+		 *
+		 * @param  string $item_id
+		 * @param  array $cart_details
+		 * @return array|false
+		 */
+		protected function getEDDItemFees( $item_id, $cart_details ) {
+
+			foreach ( $cart_details as $cart_detail ) {
+				if ( $item_id === $cart_detail['id'] ) {
+					return $cart_detail['fees'];
+				}
+			}
+			return false;
+
+		}
+
+		/**
+		 * Get EDD item subtotal
+		 *
+		 * @param  string $item_id
+		 * @param  array $cart_details
+		 * @return float|boolean
+		 */
+		protected function getEDDItemSubtotal( $item_id, $cart_details ) {
+
+			foreach ( $cart_details as $cart_detail ) {
+				if ( $item_id === $cart_detail['id'] ) {
+					return $cart_detail['subtotal'];
+				}
+			}
+			return false; // Yikes
+
+		}
+
 
 		/**
 		 * Create a Wave Transaction
@@ -473,8 +609,8 @@ return;
 
 					'inputMoneyTransactionCreate' => [
 
-						'businessId'	=> $this->business_id,
-						'externalId'	=> strval( $payment->ID ),
+						'businessId'		=> $this->business_id,
+						'externalId'		=> strval( $payment->ID ),
 						'date'			=> date( 'Y-m-d' ),
 						'description'	=> 'EDD order #' . $payment->ID . ' from ' . $payment->first_name . ' ' . $payment->last_name,
 						'notes'			=> 'Email: ' . $payment->email,
@@ -486,7 +622,7 @@ return;
 						 */
 						'anchor'			=> [
 							'accountId'		=> $anchor_account_id,
-							'amount'		=> $net,
+							'amount'			=> $net,
 							'direction'		=> 'DEPOSIT'
 						],
 						'lineItems'		=> $line_items
@@ -528,7 +664,12 @@ return;
 			);
 
 			if ( is_wp_error( $response ) ) {
-				error_log( 'Wave HTTP request error' . print_r( $response->get_error_message(), true) );
+				error_log( 'EDD + Wave: HTTP request error' . print_r( $response->get_error_message(), true) );
+				return false;
+			}
+
+			if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
+				error_log( 'EDD + Wave: HTTP status code was not 200' );
 				return false;
 			}
 
@@ -539,22 +680,26 @@ return;
 		/**
 		 * Get Wave account from product name
 		 *
-		 * @param int $id
-		 * @return string Wave ID
+		 * @param string $id Numeric
+		 * @param string $price_id Numeric, for EDD variable pricing
+		 * @return boolean|string Wave ID
 		 */
-		protected function getWaveAccount( $id ) {
+		protected function getWaveAccount( $id, $price_id ) {
 
-			$parent_id = false;
-			if ( is_int( $id ) ) {
-				$parent_id = $id;
+			if ( ! is_numeric( $id ) ) {
+				return false;
 			}
-			if ( $parent_id ) {
-				return get_post_meta( $parent_id, '_wave_income_account', true );
+
+			if ( empty( $price_id ) ) {
+				// Price ID is only going to be empty for EDD downloads without variation pricing
+				return get_post_meta( $id, '_wave_income_account', true );
 			} else {
-				error_log( 'EDD + Wave: big to-do here to get price variation Wave account IDs' );
+				$_variable_income_account = get_post_meta( $id, '_wave_variable_income_account', true );
+				if ( ! empty( $_variable_income_account ) ) {
+					// $price_id will be the array key for the price variation
+					return $_variable_income_account[$price_id];
+				}
 			}
-
-
 			return false;
 
 		}
