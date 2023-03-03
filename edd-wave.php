@@ -76,9 +76,9 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			$this->settings = (array) get_option( 'edd_wave', [] );
 
-			$this->business_id = $this->settings['business_id'];
+			$this->business_id = $this->settings['business_id'] ?? '';
 
-			$this->api_key = $this->settings['api_key'];
+			$this->api_key = $this->settings['api_key'] ?? '';
 
 			add_action( 'init', [ $this, 'init' ] );
 
@@ -339,6 +339,7 @@ return;
 			 *		3. discounts
 			 *
 			 * The "anchor" is an asset (cash and bank) or liability (credit card / LoC) : in our case, the merchant account
+			 * https://web.archive.org/web/20200811134512/https://community.waveapps.com/discussion/6415/what-exactly-is-the-the-anchor-account-in-a-moneytransaction
 			 */
 
 			if ( ! $payment->downloads ) {
@@ -442,7 +443,7 @@ $fees[ $id ] = array(
 							'amount'		=> number_format( $fee['amount'], 2, '.', '' ),
 							'balance'	=> 'CREDIT',
 						);
-						$total_fees += $fee['amount']
+						$total_fees += $fee['amount'];
 					}
 
 				}

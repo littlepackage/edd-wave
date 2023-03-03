@@ -88,9 +88,10 @@ class EDD_Wave_Settings {
 				<input type="hidden" class="regular-text ltr" name="edd_wave_settings_nonce" value="<?php echo wp_create_nonce( 'edd-wave-settings' ); ?>"/>
 				<input type="hidden" name="action" value="edd_wave_settings">
 
+				<?php $api_key = $this->settings['api_key'] ?? ''; ?>
 				<p>
 					<label for="business_id">Wave API Key</label><br />
-					<input id="api_key" type="text" class="regular-text ltr" name="api_key" value="<?php esc_attr_e( $this->settings['api_key'] ) ?? ''; ?>">
+					<input id="api_key" type="text" class="regular-text ltr" name="api_key" value="<?php esc_attr_e( $api_key ) ?? ''; ?>">
 				</p>
 
 				<?php // Get list of businesses from Wave Apps API
@@ -117,13 +118,16 @@ class EDD_Wave_Settings {
 					</select>
 				</p>
 
+				<?php if ( empty( $api_key ) && empty( $business_id ) ) { ?>	
+					<p>The two previous fields must be filled and saved to continue.</p>
+					<?php return;
+				}
 
+				$wave_asset_accounts = EDDWave()->getAccounts( 'ASSET' );
 
-				<?php $wave_asset_accounts = EDDWave()->getAccounts( 'ASSET' ); ?>
-
-				<?php if ( $wave_asset_accounts ) { ?>
-					<?php if ( is_plugin_active( 'edd-paypal-commerce-pro/edd-paypal-commerce-pro.php' ) ) {
-						$paypal_anchor_account_id = $this->settings['paypal_anchor_account_id']; ?>
+				if ( $wave_asset_accounts ) {
+					if ( is_plugin_active( 'edd-paypal-commerce-pro/edd-paypal-commerce-pro.php' ) ) {
+						$paypal_anchor_account_id = $this->settings['paypal_anchor_account_id'] ?? ''; ?>
 						<h2>PayPal Account</h2>
 						<p>
 							<label for="paypal_anchor_account_id">PayPal Anchor Account ID</label><br />
@@ -142,7 +146,7 @@ class EDD_Wave_Settings {
 					<?php } ?>
 
 					<?php if ( is_plugin_active( 'edd-stripe/edd-stripe.php' ) ) {
-					$stripe_anchor_account_id = $this->settings['stripe_anchor_account_id'];
+					$stripe_anchor_account_id = $this->settings['stripe_anchor_account_id'] ?? '';
 					?>
 					<h2>Stripe Account</h2>
 					<p>
