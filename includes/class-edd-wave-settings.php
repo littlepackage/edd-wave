@@ -110,6 +110,9 @@ class EDD_Wave_Settings {
 							$option_html_output .= '</select><p style="color:red">No businesses were found on your Wave Apps account. You must set up a business and API access for this plugin to function.</p>';
 						} else {
 							foreach ( $businesses['data']['businesses']['edges'] as $edge ) {
+								if ( $edge['node']['isArchived'] ) {
+									continue;
+								}
 								$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $business_id ) . '>' . $edge['node']['name'] . '</option>';
 							}
 						}
@@ -136,6 +139,9 @@ class EDD_Wave_Settings {
 								<?php
 								$option_html_output = '<option value="">&mdash; Select &mdash;</option>';
 								foreach ( $wave_asset_accounts['data']['business']['accounts']['edges'] as $edge ) {
+									if ( $edge['node']['isArchived'] ) {
+										continue;
+									}
 									$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $paypal_anchor_account_id ) . '>' . $edge['node']['name'] . '</option>';
 								}
 								echo $option_html_output;
@@ -287,6 +293,9 @@ class EDD_Wave_Settings {
 			// Create HTML <option>s containing Wave business expense account ID -> names
 			$option_html_output = '<option value="">&mdash; Select &mdash;</option>';
 			foreach ( $wave_accounts['data']['business']['accounts']['edges'] as $edge ) {
+				if ( $edge['node']['isArchived'] ) {
+					continue;
+				}
 				$option_html_output .= '<option value="' . $edge['node']['id'] . '">' . $edge['node']['name'] . '</option>';
 			}
 			$expense_discounts = $this->settings['expense_discounts'] ?? ''

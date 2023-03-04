@@ -176,15 +176,18 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			// $this->order_id	= $payment_id;
 			// $order 			= edd_get_order( $payment_id );
 
+			if ( ! $payment->downloads ) {
+				error_log( 'EDD + Wave: EDD payment strangely doesn\'t seem to include any downloads.' );
+				return;
+			}
+
+			$line_items = $this->initiateLineItems( $payment );
 
 			if ( ! $response->purchase_units ) {
 				error_log( 'EDD + Wave: Bad (unusable) response from PayPal API.' );
 				return;
 			}
 
-error_log( 'EDD + Wave: PayPal API response: ' . print_r( $response, true ) );
-
-			$line_items = [];
 			/**
 			 * Cart (download) details
 			 * get array of lineItems for Wave API inputMoneyTransactionCreate
@@ -192,40 +195,20 @@ error_log( 'EDD + Wave: PayPal API response: ' . print_r( $response, true ) );
 			 */
 			foreach( $response->purchase_units as $index => $purchase_unit ) {
 
-
 error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true ) );
 
-				// Total price after discounts/fees/taxes applied. In other words, the amount proposed TO PayPal
-				$price = $purchase_unit->payments->captures->$index->seller_receivable_breakdown->gross_amount->value ?? false;
+				$net	 = floatval( $purchase_unit->payments->captures[0]->seller_receivable_breakdown->net_amount->value );
 
-				if ( ! isset( $price ) ) {
-					continue;
-				}
+				$merchant_fee = $purchase_unit->payments->captures[0]->seller_receivable_breakdown->paypal_fee->value ?? null;
 
-                // custom id is actually the Order ID
-                // @todo
-				$item_id = $purchase_unit->custom_id ?? '';
-				if ( empty( $item_id ) ) {
-					continue;
-				}
-
-				$line_items[] = array(
-
-					'accountId'	=> $this->getWaveAccount( $item_id ),
-					'amount'	=> $price,
-					'balance'	=> 'CREDIT'
-
-				);
-
-				$fee = $purchase_unit->payments->captures->$index->seller_receivable_breakdown->paypal_fee->value ?? null;
-				if ( $fee ) {
+				if ( $merchant_fee ) {
 
 					/**
-					 * PayPal Merchant Account Fees (a debit)
+					 * Add merchant fees (debit) to line items
 					 */
 					$line_items[] = array(
 						'accountId'	=> $this->settings['paypal_fees_account_id'],
-						'amount'	=> $fees,
+						'amount'		=> $merchant_fee,
 						'balance'	=> 'DEBIT'
 					);
 
@@ -234,14 +217,13 @@ error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true 
 			}
 
 			if ( empty( $line_items ) ) {
+				error_log( 'Wave + EDD: Error - no data collected to send to Wave!' );
 				return;
 			}
 
-			$order_total = edd_get_payment_amount( $payment_id ); // remember we DON'T TAX THE TAX.
-			$order_total -= $fees; // (Order total should be item prices, plus taxes, minus merchant fees. This will reflect in anchor vs. line items)
-
+			
 error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
-return;
+
 
 			// PayPal method ID passed:
 			$this->createWaveTransaction( $payment, $this->settings['paypal_anchor_account_id'], $line_items, $net );
@@ -326,146 +308,14 @@ return;
 				} // there is also an additional 1% Stripe charge for currency conversions but those will probably be less common
 
 				$net = '';
-				// error_log( 'EDD + Wave: bad news, unable to retrieve Stripe BalanceTransaction data.' );
-				// return;
 
 			}
-
-			/**
-			 * LET'S START ADDING TO LINE ITEMS FOR THE WAVE ENTRY
-			 * Line items are:
-			 *		1. downloads,
-			 *		2. fees,
-			 *		3. discounts
-			 *
-			 * The "anchor" is an asset (cash and bank) or liability (credit card / LoC) : in our case, the merchant account
-			 * https://web.archive.org/web/20200811134512/https://community.waveapps.com/discussion/6415/what-exactly-is-the-the-anchor-account-in-a-moneytransaction
-			 */
 
 			if ( ! $payment->downloads ) {
 				error_log( 'EDD + Wave: EDD payment strangely doesn\'t seem to include any downloads.' );
 				return;
 			}
-
-
-// error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
-
-/*
-
-// Looks like this for download with variation pricing
-[0] => Array(
-    [0] => Array
-        (
-            [id] => 2235
-            [quantity] => 1
-            [options] => Array
-                (
-                    [quantity] => 1
-                    [price_id] => 1
-                )
-
-        )
-
-    [1] => Array
-        (
-            [id] => 58392
-            [quantity] => 1
-            [options] => Array
-                (
-                    [quantity] => 1
-                    [price_id] => 3
-                )
-
-        )
-
-)
-
-*/
-			$total_fees = 0;
-			$total_discounts = 0;
-			$line_items = [];
-			/**
-			 * Get an array of line items "lineItems" for Wave API inputMoneyTransactionCreate
-			 */
-			foreach ( $payment->downloads as $download ) {
-
-				$item_id = $download['id'] ?? '';
-
-				if ( empty( $item_id ) ) {
-					error_log( 'EDD + Wave: For some reason, a download was skipped in the foreach() loop, due to missing item ID.' );
-					continue;
-				}
-
-				if ( isset( $download['options']['is_upgrade'] ) && true === $download['options']['is_upgrade'] ) {
-					error_log( 'EDD + Wave: EDD Software License upgrade purchase not logged in Wave: ' . $payment->ID );
-					continue;
-				}
-
-				// EDD price variation ID
-				$price_id = $download['options']['price_id'] ?? '';
-
-
-				/**
-				 * Discounts (debit)
-				 */
-				$discount = $this->getEDDItemDiscount( $item_id, $payment->cart_details );
-
-				if ( $discount ) {
-					$total_discount = 0;
-					// error_log( 'Discount: ' . print_r( $discount, true ) );
-					$line_items[] = array(
-						'accountId'	=> $this->settings['expense_discounts'],
-						'amount'		=> $discount,
-						'balance'	=> 'DEBIT',
-					);
-					$total_discounts += $discount;
-				}
-
-				/**
-				 * Fees (credit)
-				 */
-				$fees = $this->getEDDItemFees( $item_id, $payment->cart_details );
-
-				if ( ! empty( $fees ) ) { // array
-/*
-$fees[ $id ] = array(
-	'amount'      => $order_fee->subtotal,
-	'label'       => $order_fee->description,
-	'no_tax'      => $no_tax,
-	'type'        => 'fee',
-	'price_id'    => $price_id,
-	'download_id' => $download_id,
-);
-*/
-					foreach ( $fees as $fee ) {
-						$line_items[] = array(
-							'accountId'	=> $this->settings['purchase_fees'],
-							'amount'		=> number_format( $fee['amount'], 2, '.', '' ),
-							'balance'	=> 'CREDIT',
-						);
-						$total_fees += $fee['amount'];
-					}
-
-				}
-
-				/**
-				 * Income (credit)
-				 */
-				$subtotal = $this->getEDDItemSubtotal( $item_id, $payment->cart_details );
-				if ( $subtotal ) {
-					/**
-					 * Add download product (credit) to line items
-					 * The accountId will be EDD product:income account Wave ID
-					 */
-					$line_items[] = array(
-						'accountId'	=> $this->getWaveAccount( $item_id, $price_id ),
-						'amount'		=> $subtotal, // Gateway amount received (before gateway fees)
-						'balance'	=> 'CREDIT'
-					);
-				}
-
-			} // end foreach ( $payment->downloads as $download )
-
+			$line_items = $this->initiateLineItems( $payment );
 
 			/**
 			 * Add merchant fees (debit) to line items
@@ -494,20 +344,137 @@ $fees[ $id ] = array(
 				}
 			*/
 
+			if ( empty( $line_items ) ) {
+				error_log( 'Wave + EDD: Error - no data collected to send to Wave!' );
+				return;
+			}
+
 			// error_log( 'EDD + Wave: Stripe line items: ' . print_r( $line_items, true ) );
 
-			if ( ! $balance_trans_retrieved && isset( $fee ) ) {
+			$this->createWaveTransaction( $payment, $this->settings['stripe_anchor_account_id'], $line_items, $net );
 
-				if ( $net !== ( $amount + $total_fees - $total_discounts - $merchant_fee ) ) {
+		}
 
-					error_log( 'EDD + Wave: the math doesn\'t add up! Amount: ' . print_r( $amount, true ) . ', Fee: ' . print_r( $fee, true ) . ', Discount: ' . print_r( $discount, true ) );
-					return;
+
+		/**
+		 * Start a lineItem array for the Wave Apps moneyTransactionCreate API mutation
+		 *
+		 * @param object $payment
+		 *
+		 * @return array
+		 */
+		private function initiateLineItems( $payment ) {
+
+
+			// error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
+
+/*
+
+// Looks like this for download with variation pricing
+[0] => Array(
+    [0] => Array
+        (
+            [id] => 2235
+            [quantity] => 1
+            [options] => Array
+                (
+                    [quantity] => 1
+                    [price_id] => 1
+                )
+        )
+    [1] => Array
+        (
+            [id] => 58392
+            [quantity] => 1
+            [options] => Array
+                (
+                    [quantity] => 1
+                    [price_id] => 3
+                )
+        )
+)
+*/
+
+			/**
+			 * Get an array of line items "lineItems" for Wave API moneyTransactionCreate
+			 */
+			foreach ( $payment->downloads as $download ) {
+
+				$item_id = $download['id'] ?? '';
+
+				if ( empty( $item_id ) ) {
+					error_log( 'EDD + Wave: For some reason, a download was skipped in the foreach() loop, due to missing item ID.' );
+					continue;
+				}
+
+				if ( isset( $download['options']['is_upgrade'] ) && true === $download['options']['is_upgrade'] ) {
+					error_log( 'EDD + Wave: EDD Software License upgrade purchase not logged in Wave: ' . $payment->ID );
+					continue;
+				}
+
+				// EDD price variation ID
+				$price_id = $download['options']['price_id'] ?? '';
+
+				/**
+				 * Discounts (debit)
+				 */
+				$discount = $this->getEDDItemDiscount( $item_id, $payment->cart_details );
+
+				if ( $discount ) {
+					$total_discount = 0;
+					// error_log( 'Discount: ' . print_r( $discount, true ) );
+					$line_items[] = array(
+						'accountId'	=> $this->settings['expense_discounts'],
+						'amount'		=> $discount,
+						'balance'	=> 'DEBIT',
+					);
+				}
+
+				/**
+				 * Fees (credit)
+				 */
+				$fees = $this->getEDDItemFees( $item_id, $payment->cart_details );
+
+				if ( ! empty( $fees ) ) { // array
+/*
+$fees[ $id ] = array(
+	'amount'      => $order_fee->subtotal,
+	'label'       => $order_fee->description,
+	'no_tax'      => $no_tax,
+	'type'        => 'fee',
+	'price_id'    => $price_id,
+	'download_id' => $download_id,
+);
+*/
+					foreach ( $fees as $fee ) {
+						$line_items[] = array(
+							'accountId'	=> $this->settings['purchase_fees'],
+							'amount'		=> number_format( $fee['amount'], 2, '.', '' ),
+							'balance'	=> 'CREDIT',
+						);
+					}
 
 				}
 
-			}
+				/**
+				 * Income (credit)
+				 */
+				$subtotal = $this->getEDDItemSubtotal( $item_id, $payment->cart_details );
+				if ( $subtotal ) {
+					/**
+					 * Add download product (credit) to line items
+					 * The accountId will be EDD product:income account Wave ID
+					 */
+					$line_items[] = array(
+						'accountId'	=> $this->getWaveAccount( $item_id, $price_id ),
+						'amount'		=> $subtotal, // Gateway amount received (before gateway fees)
+						'balance'	=> 'CREDIT'
+					);
+				}
 
-			$this->createWaveTransaction( $payment, $this->settings['stripe_anchor_account_id'], $line_items, $net );
+			} // end foreach ( $payment->downloads as $download )
+
+			return $line_items;
 
 		}
 
@@ -619,7 +586,8 @@ $fees[ $id ] = array(
 						/**
 						 * ANCHOR.
 						 * The bank/credit card account from which the transaction takes place is the Anchor
-						 * https://community.waveapps.com/discussion/6415/what-exactly-is-the-the-anchor-account-in-a-moneytransaction
+						 * The "anchor" is an asset (cash and bank) or liability (credit card / LoC) : in our case, the merchant account
+						 * https://web.archive.org/web/20200811134512/https://community.waveapps.com/discussion/6415/what-exactly-is-the-the-anchor-account-in-a-moneytransaction
 						 */
 						'anchor'			=> [
 							'accountId'		=> $anchor_account_id,
@@ -736,11 +704,8 @@ $fees[ $id ] = array(
 											edges { node {
 													id
 													name
-													description
-													displayId
 													type { name value }
 													subtype { name value }
-													normalBalanceType
 													isArchived
 											} } } } }',
 									 'variables' => array(
