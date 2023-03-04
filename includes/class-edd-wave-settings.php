@@ -131,7 +131,7 @@ class EDD_Wave_Settings {
 				if ( $wave_asset_accounts ) {
 					if ( is_plugin_active( 'edd-paypal-commerce-pro/edd-paypal-commerce-pro.php' ) ) {
 						$paypal_anchor_account_id = $this->settings['paypal_anchor_account_id'] ?? ''; ?>
-						<h2>PayPal Account</h2>
+						<h2 style="color:#1479FB">PayPal Account</h2>
 						<p>
 							<label for="paypal_anchor_account_id">PayPal Anchor Account ID</label><br />
 
@@ -154,7 +154,7 @@ class EDD_Wave_Settings {
 					<?php if ( is_plugin_active( 'edd-stripe/edd-stripe.php' ) ) {
 					$stripe_anchor_account_id = $this->settings['stripe_anchor_account_id'] ?? '';
 					?>
-					<h2>Stripe Account</h2>
+					<h2 style="color:#1479FB">Stripe Account</h2>
 					<p>
 						<label for="stripe_anchor_account_id">Stripe Anchor Account ID</label><br />
 
@@ -173,6 +173,7 @@ class EDD_Wave_Settings {
 
 					<?php $this->output_income_settings_table(); ?>
 					<?php $this->output_expenses_settings_table(); ?>
+					<?php $this->output_tax_settings_table(); ?>
 
 					<?php submit_button( null, '', 'edd-wave-submit' ); ?>
 			</form>
@@ -188,7 +189,7 @@ class EDD_Wave_Settings {
 	protected function output_income_settings_table() { ?>
 
 
-		<h2>EDD -> Wave Product Mapping</h2>
+		<h2 style="color:#1479FB">EDD -> Wave Product Mapping</h2>
 		<p>Sorry these tables aren't pretty, but they get the job done. Match your products to your Chart of Account income items below.</p>
 		<table>
 
@@ -273,7 +274,7 @@ class EDD_Wave_Settings {
 	 */
 	protected function output_expenses_settings_table() { ?>
 
-		<h2>EDD -> Wave Expense Mapping</h2>
+		<h2 style="color:#1479FB">EDD -> Wave Expense Mapping</h2>
 		<p>Match your fees, etc. to your Chart of Account expense items below.</p>
 		<table>
 			<thead>
@@ -354,6 +355,14 @@ class EDD_Wave_Settings {
 		</table>
 
 		<?php
+	}
+
+	protected function output_tax_settings_table() { ?>
+
+		<h2 style="color:#1479FB">Tax Mapping</h2>
+		<p>Need tax mapping? Consider hiring a developer like me to build it, or make a pull request.</p>
+
+	<?php
 	}
 
 	/**
