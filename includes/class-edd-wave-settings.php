@@ -84,6 +84,9 @@ class EDD_Wave_Settings {
 		<div class="wrap">
 			<h1>EDD Wave Settings</h1>
 
+			<p><em><?php echo __( 'Have I helped?', 'edd-wave' ); ?></em> <a href="https://paypal.me/SagehenStudio" target="_blank" rel="noopener">Please make a small donation in thanks :)</a></p>
+
+
 			<form id="edd-wave-settings-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" novalidate>
 				<input type="hidden" class="regular-text ltr" name="edd_wave_settings_nonce" value="<?php echo wp_create_nonce( 'edd-wave-settings' ); ?>"/>
 				<input type="hidden" name="action" value="edd_wave_settings">
@@ -96,7 +99,6 @@ class EDD_Wave_Settings {
 
 				<?php // Get list of businesses from Wave Apps API
 				$businesses = EDDWave()->getBusinesses(); ?>
-
 				
 				<p>
 					<label for="business_id">Business ID</label><br />
