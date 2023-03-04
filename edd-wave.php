@@ -12,17 +12,6 @@
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
- *
- * 1.1 - 3 Nov 2021, rework using the API callback from Stripe
- * 1.2 - 19 June 2022, check for Paypal and abort if PayPal (stopgap until payPal built back in :\ )
- * 1.3 - 3 July 2022, PayPal built back in, sorta. (Way simplified.)
- * 1.4 - 15 Dec 2022, Gift Wrapper integrated (for application on GiftWrapper.app
-comment out date_default_timezone_set()
- * 1.5 - 22 Dec 2022 - It wasn't set to actually work with PayPal! Fuck I'm tired of data entry
- * 1.6 - make $last_called work again and add PayPal fx to EDD after order cron fx
- * 1.7 - start to dig into EDD's PayPal API to get Paypal transaction details for accounting
- * 1.8 - Finally, fully integrate EDD\Gateways\PayPal\API
- * 1.9 - Develop full admin settings panel, map accounts so that others can use this, too
  */
 
 use EDD\Gateways\PayPal;
@@ -368,32 +357,27 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 
 			// error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
 
-/*
-
-// Looks like this for download with variation pricing
-[0] => Array(
-    [0] => Array
-        (
-            [id] => 2235
-            [quantity] => 1
-            [options] => Array
-                (
-                    [quantity] => 1
-                    [price_id] => 1
-                )
-        )
-    [1] => Array
-        (
-            [id] => 58392
-            [quantity] => 1
-            [options] => Array
-                (
-                    [quantity] => 1
-                    [price_id] => 3
-                )
-        )
-)
-*/
+			/*
+			// Looks like this (for download with variation pricing)
+			[0] => Array(
+				[0] => Array (
+					[id] => 2235
+					[quantity] => 1
+					[options] => Array (
+						[quantity] => 1
+						[price_id] => 1
+					)
+				)
+				[1] => Array (
+					[id] => 58392
+					[quantity] => 1
+					[options] => Array (
+						[quantity] => 1
+						[price_id] => 3
+					)
+				)
+			)
+			*/
 
 			/**
 			 * Get an array of line items "lineItems" for Wave API moneyTransactionCreate
@@ -435,17 +419,18 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 				 */
 				$fees = $this->getEDDItemFees( $item_id, $payment->cart_details );
 
+				/*
+				$fees[ $id ] = array(
+					'amount'      => $order_fee->subtotal,
+					'label'       => $order_fee->description,
+					'no_tax'      => $no_tax,
+					'type'        => 'fee',
+					'price_id'    => $price_id,
+					'download_id' => $download_id,
+				);
+				*/
+
 				if ( ! empty( $fees ) ) { // array
-/*
-$fees[ $id ] = array(
-	'amount'      => $order_fee->subtotal,
-	'label'       => $order_fee->description,
-	'no_tax'      => $no_tax,
-	'type'        => 'fee',
-	'price_id'    => $price_id,
-	'download_id' => $download_id,
-);
-*/
 					foreach ( $fees as $fee ) {
 						$line_items[] = array(
 							'accountId'	=> $this->settings['purchase_fees'],
