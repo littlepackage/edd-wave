@@ -1,14 +1,14 @@
 <?php
 /**
  * Plugin Name: Easy Digital Downloads Wave
- * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions. Custom for Caroline, by Caroline because she loves herself
+ * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions.
  *
- * Version: 1.9
- * Author: Little Package
+ * Version: 1.10
+ * Author: Sagehen Studio
  * Text Domain: edd-wave
  *
  * Easy Digital Downloads Wave
- * Copyright: (c) 2022-2023 Little Package
+ * Copyright: (c) 2022-2023 Sagehen Studio
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
@@ -28,7 +28,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 		private $business_id;
 
-		private $api_key;
+		private $full_access_token;
 
 		/**
 		 * Single instance of the Sagehen_EDD_Wave class
@@ -67,7 +67,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			$this->business_id = $this->settings['business_id'] ?? '';
 
-			$this->api_key = $this->settings['api_key'] ?? '';
+			$this->full_access_token = $this->settings['full_access_token'] ?? '';
 
 			add_action( 'init', [ $this, 'init' ] );
 
@@ -97,7 +97,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				define( 'EDD_WAVE_PLUGIN_FILE', __FILE__ );
 			}
 			if ( ! defined( 'EDD_WAVE_VERSION' ) ) {
-				define( 'EDD_WAVE_VERSION', '1.8' );
+				define( 'EDD_WAVE_VERSION', '1.10' );
 			}
 
 		}
@@ -184,7 +184,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			 */
 			foreach( $response->purchase_units as $index => $purchase_unit ) {
 
-error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true ) );
+				// error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true ) );
 
 				$net	 = floatval( $purchase_unit->payments->captures[0]->seller_receivable_breakdown->net_amount->value );
 
@@ -211,7 +211,7 @@ error_log( 'EDD + Wave: PayPal purchase unit: ' . print_r( $purchase_unit, true 
 			}
 
 			
-error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
+			// error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 
 
 			// PayPal method ID passed:
@@ -343,7 +343,6 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 			$this->createWaveTransaction( $payment, $this->settings['stripe_anchor_account_id'], $line_items, $net );
 
 		}
-
 
 		/**
 		 * Start a lineItem array for the Wave Apps moneyTransactionCreate API mutation
@@ -538,7 +537,6 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 
 		}
 
-
 		/**
 		 * Create a Wave Transaction
 		 *
@@ -587,13 +585,13 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 
 			]); // end $data
 
-			$createdPayment = $this->httpRequest( $data );
+			$this->httpRequest( $data );
 
 			if ( $createdPayment && true == $createdPayment['data']['moneyTransactionCreate']['didSucceed'] ) {
-				return; // we are successful/finished
+				return; // we are successful/finished, no need to log error
 			}
 
-			error_log( 'EDD + Wave: Failed sending to Wave. Payment response ' . print_r( $createdPayment, true ) );
+			error_log( 'EDD + Wave: Payment not created' );
 
 		}
 
@@ -606,7 +604,7 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 		private function httpRequest( $data ) {
 
 			$headers = array(
-				'Authorization' => 'Bearer ' . $this->api_key,
+				'Authorization' => 'Bearer ' . $this->full_access_token,
 				'Content-Type' => 'application/json',
 			);
 
@@ -622,12 +620,12 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 				return false;
 			}
 
-			if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
-				error_log( 'EDD + Wave: HTTP status code was not 200' );
-				return false;
+			if ( 200 === wp_remote_retrieve_response_code( $response ) ) {
+				return json_decode( $response['body'], true );
 			}
+			
+			error_log( 'EDD + Wave: HTTP status code was not 200. It was ' . wp_remote_retrieve_response_code( $response ) );
 
-			return json_decode( $response['body'], true );
 
 		}
 
@@ -706,46 +704,6 @@ error_log( 'EDD + Wave: PayPal line items: ' . print_r( $line_items, true ) );
 			return $this->httpRequest( $data );
 
 		}
-
-		/**
-		 * Get Wave account from product name
-		 *
-		 * @param int $id
-		 * @return string Wave ID
-		 */
-		private function getWaveAccount2( $id ) {
-
-			$id = (int) $id;
-
-			// id numbers can be seen in the Wave product edit screen after /edit in the URL
-			$accounts = array(
-
-				'QWNjb3VudDo4NDgwNTEwMDU0MjA0ODQ0ODk7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'			=> 19097, // WooCommerce Gift Wrapper Plus
-				'QWNjb3VudDoxMDUwMTA4MjA4NTY5Mzk5MTQ3O0J1c2luZXNzOjA4ZWQ0YmUyLTMyNWQtNDI4NS1hMzFmLTNiNTkyNGQxMWQ2Ng=='		=> 22388, // WooStamper PDF
-				'QWNjb3VudDoxMDUwMTI3NDY4NzI5NDgwNzEyO0J1c2luZXNzOjA4ZWQ0YmUyLTMyNWQtNDI4NS1hMzFmLTNiNTkyNGQxMWQ2Ng=='		=> 23115, // WP TCPDF Bridge
-				'QWNjb3VudDoxMDk0MzQwOTgyMDIwNzgxOTA1O0J1c2luZXNzOjA4ZWQ0YmUyLTMyNWQtNDI4NS1hMzFmLTNiNTkyNGQxMWQ2Ng=='		=> 22500, // Download Monitor Stamper
-				'QWNjb3VudDoxMDk0MzQwNjMwNjk3NDkwMTgwO0J1c2luZXNzOjA4ZWQ0YmUyLTMyNWQtNDI4NS1hMzFmLTNiNTkyNGQxMWQ2Ng=='		=> 22435, // EDDiStamper PDF
-
-				'QWNjb3VudDo2MDIyMTk2ODQ0NTE4NTc1NjM7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'			=> 19104, // EDDiMark PDF
-				'QWNjb3VudDo2MDIyMTk2ODgyNDM1MDg0NzE7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'			=> 19110, // WaterWoo PDF Premium
-
-				// 'QWNjb3VudDo2MTQ2MTY0OTY3ODU2MDE1NDM7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'		=> 'Discounts',
-				// 'QWNjb3VudDo2MDIyMTk2ODU3MzUzMTQ2MTc7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'		=> 'PayPal Sales',
-				// 'QWNjb3VudDo2MDIyMTk2ODcxMTk0MzQ5NzE7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'		=> 'Stripe Sales',
-				// 'QWNjb3VudDo2MDIyMTk2ODY3MDgzOTMxNjk7QnVzaW5lc3M6MDhlZDRiZTItMzI1ZC00Mjg1LWEzMWYtM2I1OTI0ZDExZDY2'		=> 'Sales',
-
-			);
-
-			foreach ( $accounts as $wave_id => $product_id ) {
-				if ( $product_id == $id ) {
-					return $wave_id;
-				}
-
-			}
-			return false;
-
-		}
-
 
 
 		/**

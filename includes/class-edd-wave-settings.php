@@ -84,17 +84,25 @@ class EDD_Wave_Settings {
 		<div class="wrap">
 			<h1>EDD Wave Settings</h1>
 
-			<p><em><?php echo __( 'Have I helped?', 'edd-wave' ); ?></em> <a href="https://paypal.me/SagehenStudio" target="_blank" rel="noopener">Please make a small donation in thanks :)</a></p>
+			<p><em><?php esc_html_e( 'Have I helped?', 'edd-wave' ); ?></em> <a href="https://paypal.me/SagehenStudio" target="_blank" rel="noopener">Please make a small donation in thanks :)</a></p>
 
 
 			<form id="edd-wave-settings-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" novalidate>
 				<input type="hidden" class="regular-text ltr" name="edd_wave_settings_nonce" value="<?php echo wp_create_nonce( 'edd-wave-settings' ); ?>"/>
 				<input type="hidden" name="action" value="edd_wave_settings">
 
-				<?php $api_key = $this->settings['api_key'] ?? ''; ?>
+				<?php 
+
+				if ( isset( $this->settings['api_key'] ) ) {
+					$this->settings['full_access_token'] = $this->settings['api_key'];
+					unset( $this->settings['api_key'] );
+					update_option( 'edd_wave', $this->settings ); 
+				}
+
+				$full_access_token = $this->settings['full_access_token'] ?? ''; ?>
 				<p>
-					<label for="business_id">Wave API Key</label><br />
-					<input id="api_key" type="text" class="regular-text ltr" name="api_key" value="<?php esc_attr_e( $api_key ) ?? ''; ?>">
+					<label for="full_access_token">Wave Full Access Token</label><br />
+					<input id="full_access_token" type="text" class="regular-text ltr" name="full_access_token" value="<?php esc_attr_e( $full_access_token ) ?? ''; ?>">
 				</p>
 
 				<?php // Get list of businesses from Wave Apps API
@@ -120,7 +128,7 @@ class EDD_Wave_Settings {
 					</select>
 				</p>
 
-				<?php if ( empty( $api_key ) && empty( $business_id ) ) { ?>	
+				<?php if ( empty( $full_access_token ) && empty( $business_id ) ) { ?>	
 					<p>The two previous fields must be filled and saved to continue.</p>
 					<?php return;
 				}
@@ -385,8 +393,8 @@ class EDD_Wave_Settings {
 			if ( isset( $_POST['business_id'] ) ) {
 				$settings['business_id'] = sanitize_text_field( $_POST['business_id'] );
 			}
-			if ( isset( $_POST['api_key'] ) ) {
-				$settings['api_key'] = sanitize_text_field( $_POST['api_key'] );
+			if ( isset( $_POST['full_access_token'] ) ) {
+				$settings['full_access_token'] = sanitize_text_field( $_POST['full_access_token'] );
 			}
 			if ( isset( $_POST['paypal_anchor_account_id'] ) ) {
 				$settings['paypal_anchor_account_id'] = sanitize_text_field( $_POST['paypal_anchor_account_id'] );

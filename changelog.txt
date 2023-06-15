@@ -25,3 +25,7 @@
 
 1.9 - March 2023
  * Develop full admin settings panel, map accounts so that others can use this, too
+
+1.10 - June 2023
+ * Better error reporting for HTTP request
+ * Change "API Key" wording in settings to "Full Access Token," which is what is used for auth
