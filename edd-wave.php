@@ -3,7 +3,7 @@
  * Plugin Name: Easy Digital Downloads Wave
  * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions.
  *
- * Version: 1.10
+ * Version: 1.11
  * Author: Sagehen Studio
  * Text Domain: edd-wave
  *
@@ -55,11 +55,6 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 * Constructor
 		 */
 		public function __construct() {
-
-			if ( ! class_exists( 'Easy_Digital_Downloads' ) ) {
-				error_log( 'EDD + Wave: This plugin requires Easy Digital Downloads be installed and activated.' );
-				return;
-			}
 
 			$this->define_constants();
 
@@ -962,4 +957,19 @@ endif;
 function EDDWave() {
 	return Sagehen_EDD_Wave::instance();
 }
-EDDWave();
+
+function edd_wave_edd_required_notice() {
+	echo '<div class="error"><p>' . __( 'The EDD Wave plugin requires Easy Digital Downloads be installed and activated.', 'edd-wave' ) . '</p></div>';
+}
+
+function edd_wave_plugins_loaded() {
+
+	if ( ! class_exists( 'Easy_Digital_Downloads' ) ) {
+		add_action( 'admin_notices', 'edd_wave_edd_required_notice' );
+		return;
+	}
+
+	EDDWave();
+
+}
+add_action( 'plugins_loaded', 'edd_wave_plugins_loaded', 9 );
