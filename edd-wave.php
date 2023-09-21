@@ -3,7 +3,7 @@
  * Plugin Name: Easy Digital Downloads Wave
  * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions.
  *
- * Version: 1.11
+ * Version: 1.12
  * Author: Sagehen Studio
  * Text Domain: edd-wave
  *
@@ -15,8 +15,6 @@
  */
 
 use EDD\Gateways\PayPal;
-// use EDD\Gateways\PayPal\AccountStatusValidator;
-// use EDD\Gateways\PayPal\API;
 
 defined( 'ABSPATH' ) || exit; // Exit if accessed directly
 
@@ -55,6 +53,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 * Constructor
 		 */
 		public function __construct() {
+
+			if ( ! class_exists( 'Easy_Digital_Downloads' ) ) {
+				error_log( 'EDD + Wave: This plugin requires Easy Digital Downloads be installed and activated.' );
+				return;
+			}
 
 			$this->define_constants();
 
@@ -234,7 +237,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 // error_log( 'EDD + Wave: $payment object: ' . print_r( $payment, true ) );
 
 			$user_info = edd_get_payment_meta_user_info( $payment->ID );
-			$billing_address = ! empty( $user_info['address'] ) ? $user_info['address'] : array( 'line1' => '', 'line2' => '', 'city' => '', 'country' => '', 'state' => '', 'zip' => '' );
+			$billing_address = ! empty( $user_info['address'] ) ? $user_info['address'] : [ 'line1' => '', 'line2' => '', 'city' => '', 'country' => '', 'state' => '', 'zip' => '' ];
 			$this->country = $billing_address['country'];
 			$international = ! ( $this->country == 'US' );
 
@@ -299,11 +302,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			 */
 			if ( ! empty( $merchant_fee ) ) {
 
-				$line_items[] = array(
+				$line_items[] = [
 					'accountId' => $this->settings['stripe_fees_account_id'],
 					'amount'    => $merchant_fee,
 					'balance'   => 'DEBIT'
-				);
+				];
 			}
 
 			if ( empty( $line_items ) ) {
@@ -371,6 +374,22 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				$price_id = $download['options']['price_id'] ?? '';
 
 				/**
+				 * Income (credit)
+				 */
+				$subtotal = $this->getEDDItemSubtotal( $item_id, $payment->cart_details );
+				if ( $subtotal ) {
+					/**
+					 * Add download product (credit) to line items
+					 * The accountId will be EDD product:income account Wave ID
+					 */
+					$line_items[] = array(
+						'accountId' => $this->getWaveAccount( $item_id, $price_id ),
+						'amount'    => $subtotal, // Gateway amount received (before gateway fees)
+						'balance'   => 'CREDIT'
+					);
+				}
+
+				/**
 				 * Discounts (debit)
 				 */
 				$discount = $this->getEDDItemDiscount( $item_id, $payment->cart_details );
@@ -389,17 +408,6 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				 */
 				$fees = $this->getEDDItemFees( $item_id, $payment->cart_details );
 
-				/*
-				$fees[ $id ] = array(
-					'amount'      => $order_fee->subtotal,
-					'label'       => $order_fee->description,
-					'no_tax'      => $no_tax,
-					'type'        => 'fee',
-					'price_id'    => $price_id,
-					'download_id' => $download_id,
-				);
-				*/
-
 				if ( ! empty( $fees ) ) { // array
 					foreach ( $fees as $fee ) {
 						$line_items[] = array(
@@ -409,22 +417,6 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 						);
 					}
 
-				}
-
-				/**
-				 * Income (credit)
-				 */
-				$subtotal = $this->getEDDItemSubtotal( $item_id, $payment->cart_details );
-				if ( $subtotal ) {
-					/**
-					 * Add download product (credit) to line items
-					 * The accountId will be EDD product:income account Wave ID
-					 */
-					$line_items[] = array(
-						'accountId' => $this->getWaveAccount( $item_id, $price_id ),
-						'amount'    => $subtotal, // Gateway amount received (before gateway fees)
-						'balance'   => 'CREDIT'
-					);
 				}
 
 			} // end foreach ( $payment->downloads as $download )
@@ -662,13 +654,13 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 													subtype { name value }
 													isArchived
 											} } } } }',
-									 'variables' => array(
-										 'businessId'	=> $this->business_id,
-										 'types'			=> $type,
-										 'page'			=> 1,
-										 'pageSize'		=> 50,
+			                         'variables' => array(
+				                         'businessId'	=> $this->business_id,
+				                         'types'			=> $type,
+				                         'page'			=> 1,
+				                         'pageSize'		=> 50,
 
-									 ) // end 'variables'
+			                         ) // end 'variables'
 
 			]); // end $data
 

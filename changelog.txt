@@ -1,3 +1,6 @@
+1.12 - Sept 2023
+ * Add CREDIT to line items before DEBITS, so it displays correctly/better in Wave Transactions
+
 1.11 - July 2023
  * Check for EDD plugin presence before launching main EDD Wave class
  * Don't show business settings until business is set, don't show business until token is set, etc.
