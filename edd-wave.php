@@ -3,18 +3,21 @@
  * Plugin Name: Easy Digital Downloads Wave
  * Description: This amazing plugin moves a successful EDD purchase into Wave Apps accounting, with a payment entry under Accounting -> Transactions.
  *
- * Version: 1.12
- * Author: Sagehen Studio
+ * Version: 1.14
+ * Author: Little Package
  * Text Domain: edd-wave
  *
  * Easy Digital Downloads Wave
- * Copyright: (c) 2022-2023 Sagehen Studio
+ * Copyright: (c) 2022-2023 Little Package
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
  */
 
 use EDD\Gateways\PayPal;
+use EDD\Vendor\Stripe\Stripe as Stripe;
+use EDD\Vendor\Stripe\BalanceTransaction as BalanceTransaction;
+
 
 defined( 'ABSPATH' ) || exit; // Exit if accessed directly
 
@@ -25,6 +28,8 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		private $settings;
 
 		private $business_id;
+
+		private $payment_completed_date;
 
 		private $full_access_token;
 
@@ -67,12 +72,14 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			$this->business_id = $this->settings['business_id'] ?? '';
 
+			$this->payment_completed_date = date( 'Y-m-d' );
+
 			$this->full_access_token = $this->settings['full_access_token'] ?? '';
 
 			add_action( 'init', [ $this, 'init' ] );
 
 			// Catch PayPal payment details via the EDD Gateway API
-			add_action( 'edd_after_payment_actions', [ $this, 'edd_after_payment' ], 10, 3 );
+			add_action( 'edd_after_payment_actions', [ $this, 'edd_after_payment_actions' ], 10, 3 );
 
 			/**
 			 * Allows further processing after a payment is created (notice the "S" after edd in the hook name)
@@ -97,7 +104,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				define( 'EDD_WAVE_PLUGIN_FILE', __FILE__ );
 			}
 			if ( ! defined( 'EDD_WAVE_VERSION' ) ) {
-				define( 'EDD_WAVE_VERSION', '1.10' );
+				define( 'EDD_WAVE_VERSION', '1.14' );
 			}
 
 		}
@@ -118,7 +125,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 *
 		 * @return void
 		 */
-		public function init( $hook ) {
+		public function init() {
 
 			if ( is_admin() ) {
 				new EDD_Wave_Settings;
@@ -134,7 +141,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 * @param object $customer
 		 * @return void
 		 */
-		public function edd_after_payment( $payment_id, $payment, $customer ) {
+		public function edd_after_payment_actions( $payment_id, $payment, $customer ) {
 
 			$payment_method = edd_get_payment_gateway( $payment_id ); // 'stripe' or 'paypal_commerce'
 
@@ -157,7 +164,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			}
 
-			if ( empty( $response->id ) || 'COMPLETED' !== $response->status ) {
+			if ( empty( $response->id ) || 'completed' !== strtolower( $response->status ) ) {
 				error_log( 'EDD + Wave: $response->id not found or $response->status not "COMPLETED"' );
 				return;
 			}
@@ -172,6 +179,12 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			if ( ! $response->purchase_units ) {
 				error_log( 'EDD + Wave: Bad (unusable) response from PayPal API.' );
 				return;
+			}
+
+			// error_log( 'PayPal response: ' . print_r( $response, true ) );
+
+			if ( isset( $response->create_time ) ) {
+				$this->payment_completed_date = date( 'Y-m-d', strtotime( $response->create_time ) );
 			}
 
 			/**
@@ -192,11 +205,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 					/**
 					 * Add merchant fees (debit) to line items
 					 */
-					$line_items[] = array(
+					$line_items[] = [
 						'accountId' => $this->settings['paypal_fees_account_id'],
 						'amount'    => $merchant_fee,
 						'balance'   => 'DEBIT'
-					);
+					];
 
 				}
 
@@ -234,39 +247,56 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				return;
 			}
 
+			if ( ! $payment->downloads ) {
+				error_log( 'EDD + Wave: EDD payment strangely doesn\'t seem to include any downloads.' );
+				return;
+			}
+
 // error_log( 'EDD + Wave: $payment object: ' . print_r( $payment, true ) );
 
 			$user_info = edd_get_payment_meta_user_info( $payment->ID );
 			$billing_address = ! empty( $user_info['address'] ) ? $user_info['address'] : [ 'line1' => '', 'line2' => '', 'city' => '', 'country' => '', 'state' => '', 'zip' => '' ];
-			$this->country = $billing_address['country'];
-			$international = ! ( $this->country == 'US' );
+			$country = $billing_address['country'];
+			$international = ! ( $country == 'US' );
 
 
 			// GET THE STRIPE INTENT FROM THE INTENT ID
-			$intent = edds_api_request( 'PaymentIntent', 'retrieve', $intent_id );
+			$payment_intent = edds_api_request( 'PaymentIntent', 'retrieve', $intent_id );
+
+// error_log( 'EDD + Wave: Payment intent: ' . print_r( $payment_intent, true ) );
 
 			/**
 			 * If payment wasn't successful, stop
 			 */
-			if ( 'succeeded' !== $intent->status ) {
-				error_log( 'EDD + Wave: Payment not a success, aborting sending data to Wave.' );
+			if ( 'succeeded' !== $payment_intent->status ) {
+				error_log( 'EDD + Wave: Payment intent status not a success, aborting sending data to Wave.' );
 				return;
 			}
 
-			$billing_country_code = current( $intent->charges->data )->billing_details->address->country;
+			$billing_country_code = '';
+			$billing_country = '';
+			$charge = [];
+			// Get the Stripe Charge object
+			if ( isset( $payment_intent->latest_charge ) ) {
 
-			// GET FORMATTED BILLING COUNTRY NAME
-			$billing_country = $this->getCountry( $billing_country_code );
+				$charge = edds_api_request( 'Charge', 'retrieve', $payment_intent->latest_charge );
 
-			if ( ! class_exists( 'Stripe\Stripe' ) && defined( 'EDDS_PLUGIN_DIR' ) ) {
-				require_once EDDS_PLUGIN_DIR . '/vendor/autoload.php';
+				$billing_country_code = $charge->billing_details->address->country;
+
+				// GET FORMATTED BILLING COUNTRY NAME
+				$billing_country = $this->getCountry( $billing_country_code );
+			}
+			if ( empty( $charge ) ) {
+				$charge = edds_api_request( 'charge', 'retrieve', $payment->ID );
 			}
 
 			$balance_trans_retrieved = false;
+
 			// Try to get Balance Transaction from Stripe
 			try {
 
-				$balance_transaction = \Stripe\BalanceTransaction::retrieve( current( $intent->charges->data )->balance_transaction );
+				$balance_transaction = edds_api_request( 'BalanceTransaction', 'retrieve', $charge->balance_transaction );
+
 				// error_log( 'EDD + Wave Balance Transaction: ' . print_r( $balance_transaction, true ) );
 
 				$amount = floatval( $balance_transaction->amount / 100 );
@@ -275,12 +305,12 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 				$balance_trans_retrieved = true;
 
-				// Then if no luck, we try another method (using intent)
+			// Then if no luck, we try another method (using intent)
 			} catch( Exception $e ) { // if no, use Intent
 
-				error_log( 'Balance Transaction fetch failed. Using $intent->amount_received instead, which might fail due to merchant fee variability.' );
+				error_log( 'Balance Transaction fetch failed. Using $payment_intent->amount_received instead, which might fail due to merchant fee variability. More info: ' . $e->getMessage() );
 
-				$amount = floatval( $intent->amount_received / 100 );
+				$amount = floatval( $payment_intent->amount_received / 100 );
 				if ( 'US' === strtoupper( $billing_country_code ) ) {
 					$merchant_fee = floatval( ( $amount * .029 ) + 0.30 );
 				} else {
@@ -291,11 +321,9 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			}
 
-			if ( ! $payment->downloads ) {
-				error_log( 'EDD + Wave: EDD payment strangely doesn\'t seem to include any downloads.' );
-				return;
-			}
 			$line_items = $this->initiateLineItems( $payment );
+
+			$this->payment_completed_date = date( 'Y-m-d', $payment_intent->created );
 
 			/**
 			 * Add merchant fees (debit) to line items
@@ -329,29 +357,32 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 */
 		private function initiateLineItems( $payment ) {
 
-			// error_log( 'EDD + Wave: Payment downloads array: ' . print_r( $payment->downloads, true ) );
-
-			/*
+			
 			// Looks like this (for download with variation pricing)
-			[0] => Array(
-				[0] => Array (
+			/*
+			[0] => [
+				[0] => [
 					[id] => 2235
 					[quantity] => 1
 					[options] => Array (
 						[quantity] => 1
 						[price_id] => 1
-					)
+					]
 				)
-				[1] => Array (
+				[1] => [
 					[id] => 58392
 					[quantity] => 1
 					[options] => Array (
 						[quantity] => 1
 						[price_id] => 3
-					)
-				)
+					]
+				]
 			)
 			*/
+
+			if ( isset( $payment->completed_date ) ) {
+				$this->payment_completed_date = date( 'Y-m-d', strtotime( $payment->completed_date ) );
+			}
 
 			/**
 			 * Get an array of line items "lineItems" for Wave API moneyTransactionCreate
@@ -373,6 +404,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				// EDD price variation ID
 				$price_id = $download['options']['price_id'] ?? '';
 
+
 				/**
 				 * Income (credit)
 				 */
@@ -382,11 +414,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 					 * Add download product (credit) to line items
 					 * The accountId will be EDD product:income account Wave ID
 					 */
-					$line_items[] = array(
+					$line_items[] = [
 						'accountId' => $this->getWaveAccount( $item_id, $price_id ),
 						'amount'    => $subtotal, // Gateway amount received (before gateway fees)
 						'balance'   => 'CREDIT'
-					);
+					];
 				}
 
 				/**
@@ -396,11 +428,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 				if ( $discount ) {
 					// error_log( 'Discount: ' . print_r( $discount, true ) );
-					$line_items[] = array(
+					$line_items[] = [
 						'accountId' => $this->settings['expense_discounts'],
 						'amount'    => $discount,
 						'balance'   => 'DEBIT',
-					);
+					];
 				}
 
 				/**
@@ -410,11 +442,11 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 				if ( ! empty( $fees ) ) { // array
 					foreach ( $fees as $fee ) {
-						$line_items[] = array(
+						$line_items[] = [
 							'accountId' => $this->settings['purchase_fees'],
 							'amount'    => number_format( $fee['amount'], 2, '.', '' ),
 							'balance'   => 'CREDIT',
-						);
+						];
 					}
 
 				}
@@ -518,16 +550,16 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			 */
 			$data = wp_json_encode([
 
-				'query'		=> 'mutation ($inputMoneyTransactionCreate: MoneyTransactionCreateInput!) { moneyTransactionCreate(input: $inputMoneyTransactionCreate) { didSucceed, inputErrors { code, message, path } } }',
-				'variables'	=> [
+				'query'     => 'mutation ($inputMoneyTransactionCreate: MoneyTransactionCreateInput!) { moneyTransactionCreate(input: $inputMoneyTransactionCreate) { didSucceed, inputErrors { code, message, path } } }',
+				'variables' => [
 
 					'inputMoneyTransactionCreate' => [
 
-						'businessId' => $this->business_id,
-						'externalId' => strval( $payment->ID ),
-						'date' => date( 'Y-m-d' ),
-						'description' => 'EDD order #' . $payment->ID . ' from ' . $payment->first_name . ' ' . $payment->last_name,
-						'notes' => 'Email: ' . $payment->email,
+						'businessId'  => $this->business_id,
+						'externalId'  => strval( $payment->ID ),
+						'date'        => $this->payment_completed_date,
+						'description' => 'EDD #' . $payment->ID . ' from ' . $payment->first_name . ' ' . $payment->last_name,
+						'notes'       => 'Email: ' . $payment->email,
 
 						/**
 						 * ANCHOR.
@@ -554,7 +586,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				return; // we are successful/finished, no need to log error
 			}
 
-			error_log( 'EDD + Wave: Payment not created' );
+			error_log( 'EDD + Wave: Payment not created. More info: ' . print_r( $createdPayment, true ) );
 
 		}
 
@@ -566,16 +598,16 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 		 */
 		private function httpRequest( $data ) {
 
-			$headers = array(
+			$headers = [
 				'Authorization' => 'Bearer ' . $this->full_access_token,
 				'Content-Type' => 'application/json',
-			);
+			];
 
-			$response = wp_remote_post( 'https://gql.waveapps.com/graphql/public', array(
-					'timeout'   => 10, // timeout set low because we are trying to not disrupt checkout flow
+			$response = wp_remote_post( 'https://gql.waveapps.com/graphql/public', [
+					'timeout'   => 20, // timeout set low because we are trying to not disrupt checkout flow
 					'headers'   => $headers,
 					'body'      => $data,
-				)
+				]
 			);
 
 			if ( is_wp_error( $response ) ) {
@@ -588,6 +620,8 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 			}
 
 			error_log( 'EDD + Wave: HTTP status code was not 200. It was ' . wp_remote_retrieve_response_code( $response ) );
+			error_log( 'EDD + Wave: Response was ' . print_r( $response, true ) );
+			error_log( 'full access code: ' . print_r( $this->full_access_token, true ) );
 			return false;
 
 		}
@@ -654,13 +688,12 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 													subtype { name value }
 													isArchived
 											} } } } }',
-			                         'variables' => array(
-				                         'businessId'	=> $this->business_id,
-				                         'types'			=> $type,
-				                         'page'			=> 1,
-				                         'pageSize'		=> 50,
-
-			                         ) // end 'variables'
+									 'variables' => [
+										 'businessId'	=> $this->business_id,
+										 'types'			=> $type,
+										 'page'			=> 1,
+										 'pageSize'		=> 100,
+									 ] // end 'variables'
 
 			]); // end $data
 
@@ -678,7 +711,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 
 			$code = strtoupper( $code );
 
-			$countryList = array(
+			$countryList = [
 
 				"US" => "United States",
 				"GB" => "United Kingdom",
@@ -930,7 +963,7 @@ if ( ! class_exists( 'Sagehen_EDD_Wave' ) ) :
 				"UA" => "Ukraine",
 				"QA" => "Qatar",
 				"MZ" => "Mozambique"
-			);
+			];
 
 			if( ! $countryList[$code] ) {
 				return $code;

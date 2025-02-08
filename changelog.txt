@@ -1,3 +1,11 @@
+1.14 - Jan 2024
+ * Better Stripe support
+ * Don't autoload settings stored in wp-options table
+ * Increase Wave API timeout to 20sec from 10 seconds
+ 
+1.13 - Dec 2023
+ * Use payment completed date instead of local date
+
 1.12 - Sept 2023
  * Add CREDIT to line items before DEBITS, so it displays correctly/better in Wave Transactions
 

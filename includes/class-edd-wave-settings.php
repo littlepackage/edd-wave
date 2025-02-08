@@ -11,7 +11,7 @@ class EDD_Wave_Settings {
 	 */
 	public function __construct() {
 
-		$this->settings = (array) get_option( 'edd_wave', [] );
+		$this->settings = get_option( 'edd_wave', [] );
 
 		// Add link to EDD Wave settings from WP plugins page
 		add_filter( 'plugin_action_links_edd-wave/edd-wave.php', [ $this, 'add_settings_link' ] );
@@ -70,7 +70,7 @@ class EDD_Wave_Settings {
 		// Being cute but also stealing the Wave Apps icon
 		$wiz_icon = 'data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPCEtLSBHZW5lcmF0b3I6IEFkb2JlIElsbHVzdHJhdG9yIDI3LjIuMCwgU1ZHIEV4cG9ydCBQbHVnLUluIC4gU1ZHIFZlcnNpb246IDYuMDAgQnVpbGQgMCkgIC0tPgo8c3ZnIHZlcnNpb249IjEuMSIgaWQ9IkxheWVyXzEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHg9IjBweCIgeT0iMHB4IgoJIHZpZXdCb3g9IjAgMCA0MiA0MiIgc3R5bGU9ImVuYWJsZS1iYWNrZ3JvdW5kOm5ldyAwIDAgNDIgNDI7IiB4bWw6c3BhY2U9InByZXNlcnZlIj4KPHN0eWxlIHR5cGU9InRleHQvY3NzIj4KCS5zdDB7ZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDojMDg0Rjk5O30KCS5zdDF7ZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDojNUVCN0ZGO30KCS5zdDJ7ZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDojMTQ3OUZCO30KPC9zdHlsZT4KPHBhdGggY2xhc3M9InN0MCIgZD0iTTQsMzFjMi40LDAuOCw0LjktMC41LDUuNy0yLjdsMi43LTguN2MwLjctMi4yLTAuNi00LjctMy01LjVMOS4yLDE0Yy0yLjQtMC44LTQuOSwwLjUtNS43LDIuN2wtMi43LDguNwoJYy0wLjcsMi4yLDAuNiw0LjcsMyw1LjVMNCwzMXoiLz4KPHBhdGggY2xhc3M9InN0MSIgZD0iTTMyLjUsNi4xQzMzLDQuOSwzNCwzLjksMzUuMSwzLjRjMC4xLDAsMC4xLTAuMSwwLjItMC4xYzAsMCwwLjEsMCwwLjEsMGMwLjktMC40LDEuOS0wLjQsMi45LTAuMWwwLjIsMC4xCgljMi40LDAuOCwzLjcsMy41LDIuOCw2YzAsMC02LjUsMjIuMS02LjUsMjIuMWMtMS43LDUuMS03LjEsNy43LTExLjgsNi40YzAsMC0xLjMtMC40LTEuOC0wLjdDMjUuOCwzNi4xLDMxLjYsOC4zLDMyLjUsNi4xeiIvPgo8cGF0aCBjbGFzcz0ic3QyIiBkPSJNNC44LDMzLjljMSwwLjMsMiwwLjMsMywwLjFjMC4yLDAsMC4zLTAuMSwwLjUtMC4xYzEuOS0wLjYsMy42LTIuMiw0LjMtNC4zbDUuMS0xNi44YzAuOC0yLjYsMy41LTQsNS44LTMuMwoJbDAuMiwwLjFjMi40LDAuOCwzLjcsMy41LDIuOCw2YzAsMC00LjgsMTUuOS01LjUsMTcuM2MtNC45LDktMTQuMiw0LjYtMTYuOSwwLjhjMC4yLDAuMSwwLjMsMC4xLDAuNSwwLjJMNC44LDMzLjl6Ii8+Cjwvc3ZnPgo=';
 
-		add_menu_page( 'EDD Wave', 'EDD Wave', 'edit_posts', 'edd-wave', array( $this, 'options_page' ), $wiz_icon, '151' );
+		add_menu_page( 'EDD Wave', 'EDD Wave', 'edit_posts', 'edd-wave', [ $this, 'options_page' ], $wiz_icon, '151' );
 
 	}
 
@@ -96,7 +96,7 @@ class EDD_Wave_Settings {
 				if ( isset( $this->settings['api_key'] ) ) {
 					$this->settings['full_access_token'] = $this->settings['api_key'];
 					unset( $this->settings['api_key'] );
-					update_option( 'edd_wave', $this->settings ); 
+					update_option( 'edd_wave', $this->settings, false ); 
 				}
 
 				$full_access_token = $this->settings['full_access_token'] ?? ''; ?>
@@ -132,60 +132,57 @@ class EDD_Wave_Settings {
 					<p>The two previous fields must be filled and saved to continue.</p>
 					<?php return;
 				}
-				
-				if ( ! empty( $business_id ) ) {
 
-					$wave_asset_accounts = EDDWave()->getAccounts( 'ASSET' );
+				$wave_asset_accounts = EDDWave()->getAccounts( 'ASSET' );
 
-					if ( $wave_asset_accounts ) {
-						if ( is_plugin_active( 'edd-paypal-commerce-pro/edd-paypal-commerce-pro.php' ) ) {
-							$paypal_anchor_account_id = $this->settings['paypal_anchor_account_id'] ?? ''; ?>
-							<h2 style="color:#1479FB">PayPal Account</h2>
-							<p>
-								<label for="paypal_anchor_account_id">PayPal Anchor Account ID</label><br />
-
-								<select name="paypal_anchor_account_id">
-									<?php
-									$option_html_output = '<option value="">&mdash; Select &mdash;</option>';
-									foreach ( $wave_asset_accounts['data']['business']['accounts']['edges'] as $edge ) {
-										if ( $edge['node']['isArchived'] ) {
-											continue;
-										}
-										$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $paypal_anchor_account_id ) . '>' . $edge['node']['name'] . '</option>';
-									}
-									echo $option_html_output;
-									?>
-								</select>
-							</p>
-
-						<?php } ?>
-
-						<?php if ( is_plugin_active( 'edd-stripe/edd-stripe.php' ) ) {
-						$stripe_anchor_account_id = $this->settings['stripe_anchor_account_id'] ?? '';
-						?>
-						<h2 style="color:#1479FB">Stripe Account</h2>
+				if ( $wave_asset_accounts ) {
+					if ( is_plugin_active( 'edd-paypal-commerce-pro/edd-paypal-commerce-pro.php' ) ) {
+						$paypal_anchor_account_id = $this->settings['paypal_anchor_account_id'] ?? ''; ?>
+						<h2 style="color:#1479FB">PayPal Account</h2>
 						<p>
-							<label for="stripe_anchor_account_id">Stripe Anchor Account ID</label><br />
+							<label for="paypal_anchor_account_id">PayPal Anchor Account ID</label><br />
 
-							<select name="stripe_anchor_account_id">
-								<?php $option_html_output = '<option value="">&mdash; Select &mdash;</option>';
+							<select name="paypal_anchor_account_id">
+								<?php
+								$option_html_output = '<option value="">&mdash; Select &mdash;</option>';
 								foreach ( $wave_asset_accounts['data']['business']['accounts']['edges'] as $edge ) {
-									$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $stripe_anchor_account_id ) . '>' . $edge['node']['name'] . '</option>';
+									if ( $edge['node']['isArchived'] ) {
+										continue;
+									}
+									$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $paypal_anchor_account_id ) . '>' . $edge['node']['name'] . '</option>';
 								}
 								echo $option_html_output;
 								?>
 							</select>
+						</p>
 
-						<?php } ?>
-					<?php }
+					<?php } ?>
 
-					$this->output_income_settings_table();
-					$this->output_expenses_settings_table();
-					$this->output_tax_settings_table();
+					<?php if ( is_plugin_active( 'edd-stripe/edd-stripe.php' ) ) {
+					$stripe_anchor_account_id = $this->settings['stripe_anchor_account_id'] ?? '';
+					?>
+					<h2 style="color:#1479FB">Stripe Account</h2>
+					<p>
+						<label for="stripe_anchor_account_id">Stripe Anchor Account ID</label><br />
 
-				} ?>
+						<select name="stripe_anchor_account_id">
+							<?php $option_html_output = '<option value="">&mdash; Select &mdash;</option>';
+							foreach ( $wave_asset_accounts['data']['business']['accounts']['edges'] as $edge ) {
+								$option_html_output .= '<option value="' . $edge['node']['id'] . '"' . selected( $edge['node']['id'], $stripe_anchor_account_id ) . '>' . $edge['node']['name'] . '</option>';
+							}
+							echo $option_html_output;
+							?>
+						</select>
 
-				<?php submit_button( null, '', 'edd-wave-submit' ); ?>
+					<?php } ?>
+				<?php } ?>
+
+
+					<?php $this->output_income_settings_table(); ?>
+					<?php $this->output_expenses_settings_table(); ?>
+					<?php $this->output_tax_settings_table(); ?>
+
+					<?php submit_button( null, '', 'edd-wave-submit' ); ?>
 			</form>
 		</div>
 
@@ -224,14 +221,14 @@ class EDD_Wave_Settings {
 			}
 
 			// Now let's get all the EDD products
-			$args = array(
+			$args = [
 				'post_type'     	=> 'download',
 				'post_status'   	=> 'publish',
 				'order'       	=> 'ASC',
 				'orderby'       	=> 'title',
 				'numberposts'  	=> -1,
 				'no_found_rows'	=> true, // don't include pagination (faster)
-			);
+			];
 			$edd_downloads = get_posts( $args );
 
 			foreach ( $edd_downloads as $index => $download ) {
@@ -258,7 +255,7 @@ class EDD_Wave_Settings {
 
 						$_key = $_post_meta_variable_income_account[$key] ?? '';
 
-						echo '<tr id="edd-wave-row-' . $index . '-' .$price["index"] . '">';
+						echo '<tr id="edd-wave-row-' . $index . '-' . $key . '">';
 						echo '<td class="edd-wave-local-value">' . $download->post_title . ' - ' . $price["name"];
 						echo '<input type="hidden" name="edd_wave_income[' . $download->ID . '][' . $key . ']" value="' . $_key . '">';
 						echo '</td>';
@@ -303,13 +300,11 @@ class EDD_Wave_Settings {
 
 			// Create HTML <option>s containing Wave business expense account ID -> names
 			$option_html_output = '<option value="">&mdash; Select &mdash;</option>';
-			if ( is_array( $wave_accounts['data']['business']['accounts']['edges'] ) ) {
-				foreach ( $wave_accounts['data']['business']['accounts']['edges'] as $edge ) {
-					if ( $edge['node']['isArchived'] ) {
-						continue;
-					}
-					$option_html_output .= '<option value="' . $edge['node']['id'] . '">' . $edge['node']['name'] . '</option>';
+			foreach ( $wave_accounts['data']['business']['accounts']['edges'] as $edge ) {
+				if ( $edge['node']['isArchived'] ) {
+					continue;
 				}
+				$option_html_output .= '<option value="' . $edge['node']['id'] . '">' . $edge['node']['name'] . '</option>';
 			}
 			$expense_discounts = $this->settings['expense_discounts'] ?? ''
 			?>
@@ -393,7 +388,7 @@ class EDD_Wave_Settings {
 		if ( isset( $_POST['edd-wave-submit'] ) ) {
 
 			// Get existing settings
-			$settings = (array) get_option( 'edd_wave', [] );
+			$settings = get_option( 'edd_wave', [] );
 
 			if ( isset( $_POST['business_id'] ) ) {
 				$settings['business_id'] = sanitize_text_field( $_POST['business_id'] );
@@ -427,7 +422,7 @@ class EDD_Wave_Settings {
 
 						$account = sanitize_text_field( $income_account );
 
-						if ( 'parent' === $key ) {
+						if ( $key === 'parent' ) {
 							update_post_meta( $index, '_wave_income_account', $account );
 						} else {
 							if ( ! empty( $account ) ) {
@@ -448,7 +443,7 @@ class EDD_Wave_Settings {
 
 			}
 
-			update_option( 'edd_wave', $settings );
+			update_option( 'edd_wave', $settings, false );
 
 		}
 		wp_safe_redirect( admin_url( 'admin.php?page=edd-wave' ) );
